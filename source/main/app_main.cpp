@@ -88,22 +88,19 @@ static const SoilMeasurement::Attributes::SoilMoistureMeasurementLimits::TypeInf
 // Reporting - attribute updates must run on the Matter thread; readings are
 // passed through ScheduleWork's intptr_t argument.
 
-static void report_moisture(uint8_t percent, int raw_mv, bool force_report)
+static void report_moisture(uint8_t percent, bool force_report)
 {
     static int s_last_pct = -1;
-    static int s_last_mv = -1;
     if (s_last_pct >= 0) {
         if (force_report) {
             if ((int)percent == s_last_pct) {
                 return;
             }
-        } else if (abs((int)percent - s_last_pct) < CONFIG_SOIL_REPORT_DELTA_PERCENT ||
-                   abs(raw_mv - s_last_mv) < 15) {
+        } else if (abs((int)percent - s_last_pct) < CONFIG_SOIL_REPORT_DELTA_PERCENT) {
             return;
         }
     }
     s_last_pct = percent;
-    s_last_mv = raw_mv;
     CHIP_ERROR err = chip::DeviceLayer::PlatformMgr().ScheduleWork(
         [](intptr_t arg) {
             // The registered SoilMeasurement server cluster owns this
@@ -118,7 +115,6 @@ static void report_moisture(uint8_t percent, int raw_mv, bool force_report)
         (intptr_t)percent);
     if (err != CHIP_NO_ERROR) {
         s_last_pct = -1;  // retry on the next sample instead of dropping the change
-        s_last_mv = -1;
     }
 }
 
@@ -209,7 +205,7 @@ static void sample_task(void *arg)
 
             if (have_moisture) {
                 const bool force_report = (bits & APP_SAMPLE_SHOW_LED) != 0;
-                report_moisture(moisture, raw_mv, force_report);
+                report_moisture(moisture, force_report);
                 if (bits & APP_SAMPLE_SHOW_LED) {
                     status_led_moisture_blink(moisture);
                 }
@@ -416,7 +412,11 @@ extern "C" void app_main()
 #if CONFIG_PM_ENABLE
     esp_pm_config_t pm_config = {
         .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+#if CONFIG_SOIL_CPU_DFS_IDLE
         .min_freq_mhz = CONFIG_XTAL_FREQ,
+#else
+        .min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+#endif
 #if CONFIG_FREERTOS_USE_TICKLESS_IDLE
         .light_sleep_enable = true,
 #endif

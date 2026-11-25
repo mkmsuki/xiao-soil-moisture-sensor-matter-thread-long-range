@@ -4,6 +4,15 @@
 
 All notable changes to this firmware. Versions follow [semver](https://semver.org/); the Matter software version integer for each release is noted since OTA uses it.
 
+## v0.5.0 - Accuracy, power tuning & chemistry-aware battery
+
+*Software version `0x00000500`*
+
+- **Improved:** measurement accuracy. Both ADC channels now discard 2 dummy reads after switching channels and use an interquartile trimmed mean (16 reads for soil, 9 for battery) with half-up rounding. `soil_probe` holds `ESP_PM_APB_FREQ_MAX` and uses `LEDC_USE_PLL_DIV_CLK` so the 200 kHz excitation PWM stays frequency-locked under CPU DFS. `sample_task` now reads the rested battery voltage before exciting the soil probe, and calibration rejects unstable readings exceeding `SOIL_CAL_MAX_SPREAD_MV` (default 60 mV).
+- **Added:** selectable `SOIL_BATTERY_CHEMISTRY` profiles (`Alkaline` default, `NiMH`, `Lithium` Li-FeS2 fitted to field data, or `Linear`). Note: switching the default from Linear to the Alkaline piecewise curve shifts the 10% Critical threshold from ~1.05 V to 1.10 V.
+- **Changed:** default sample interval and LIT ICD idle mode interval raised from 900 s to 1800 s, default `SOIL_REPORT_DELTA_PERCENT` raised from 1% to 2% (manual single-press still reports any 1% change immediately), idle CPU DFS down to `CONFIG_XTAL_FREQ` (40 MHz) via `SOIL_CPU_DFS_IDLE`, and daily LED sag test skipped when battery is `<= 10%`.
+- **Fixed:** single-press LED verdict now treats `<= 23%` as dry (red), matching Home Assistant and the stock firmware.
+
 ## v0.4.0 - Cell voltage reporting
 
 *Software version `0x00000400`*

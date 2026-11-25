@@ -73,14 +73,23 @@ menu "Soil Sensor Configuration"
         int "Battery empty voltage at ADC pin (mV)"
         default 1000
         help
-            ADC pin voltage that maps to 0% battery. Matches the original
-            ESPHome firmware's mapping for this kit.
+            ADC pin voltage that maps to 0% battery. Used only when
+            SOIL_BATTERY_CHEMISTRY_LINEAR is selected.
 
     config SOIL_BATTERY_FULL_MV
         int "Battery full voltage at ADC pin (mV)"
         default 1500
         help
-            ADC pin voltage that maps to 100% battery.
+            ADC pin voltage that maps to 100% battery. Used only when
+            SOIL_BATTERY_CHEMISTRY_LINEAR is selected.
+
+    config SOIL_CPU_DFS_IDLE
+        bool "Allow CPU frequency scaling down to XTAL when idle"
+        default y
+        help
+            When enabled, esp_pm scales the CPU clock down to CONFIG_XTAL_FREQ
+            (40 MHz on ESP32-C6) whenever no PM lock is held. Disable to pin
+            the CPU clock at the default frequency.
 
     config SOIL_BATTERY_SAG_WARN_MV
         int "Battery sag warning threshold (mV)"

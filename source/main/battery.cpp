@@ -138,7 +138,7 @@ static uint8_t battery_mv_to_percent(int mv)
     return lut_to_percent(mv, kNimhLut, sizeof(kNimhLut) / sizeof(kNimhLut[0]));
 #elif CONFIG_SOIL_BATTERY_CHEMISTRY_LITHIUM
     static const bat_point_t kLithiumLut[] = {
-        {1200, 0}, {1350, 10}, {1420, 20}, {1480, 40}, {1520, 65}, {1560, 85}, {1620, 100},
+        {1500, 0}, {1525, 3}, {1560, 8}, {1600, 15}, {1610, 25}, {1640, 60}, {1680, 100},
     };
     return lut_to_percent(mv, kLithiumLut, sizeof(kLithiumLut) / sizeof(kLithiumLut[0]));
 #else

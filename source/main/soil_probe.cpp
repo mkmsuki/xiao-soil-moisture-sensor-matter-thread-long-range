@@ -176,13 +176,14 @@ static esp_err_t save_calibration(int32_t dry_mv, int32_t wet_mv)
 
 esp_err_t soil_probe_init(void)
 {
-    // Excitation PWM, created idle (duty 0).
+    // Excitation PWM, created idle (duty 0). Use PLL_DIV_CLK so 200 kHz stays
+    // fixed regardless of CPU DFS state.
     ledc_timer_config_t timer_cfg = {
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .duty_resolution = LEDC_TIMER_8_BIT,
         .timer_num = LEDC_TIMER_0,
         .freq_hz = EXCITATION_FREQ_HZ,
-        .clk_cfg = LEDC_AUTO_CLK,
+        .clk_cfg = LEDC_USE_PLL_DIV_CLK,
     };
     ESP_RETURN_ON_ERROR(ledc_timer_config(&timer_cfg), TAG, "ledc timer config failed");
 
