@@ -21,6 +21,7 @@
 #include "status_led.h"
 #include "app_priv.h"
 
+#include <algorithm>
 #include <esp_check.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
@@ -31,9 +32,13 @@
 static const char *TAG = "battery";
 
 #define BATTERY_ADC_CHANNEL ADC_CHANNEL_0  // GPIO0
-#define SAMPLE_COUNT        5
-#define SAMPLE_GAP_MS       20
+#define SAMPLE_COUNT        9
+#define SAMPLE_GAP_MS       15
+#define DUMMY_READ_COUNT    2
 #define LOAD_SETTLE_MS      30
+
+static_assert(CONFIG_SOIL_BATTERY_FULL_MV > CONFIG_SOIL_BATTERY_EMPTY_MV,
+              "SOIL_BATTERY_FULL_MV must exceed SOIL_BATTERY_EMPTY_MV");
 
 static adc_cali_handle_t s_cali;
 
@@ -64,15 +69,19 @@ esp_err_t battery_init(void)
 
 static esp_err_t sample_avg_mv(adc_oneshot_unit_handle_t unit, int *avg_mv)
 {
-    int64_t sum = 0;
+    for (int i = 0; i < DUMMY_READ_COUNT; i++) {
+        int raw = 0;
+        (void)adc_oneshot_read(unit, BATTERY_ADC_CHANNEL, &raw);
+    }
+
+    int samples[SAMPLE_COUNT];
     int valid = 0;
     for (int i = 0; i < SAMPLE_COUNT; i++) {
         int raw = 0;
         if (adc_oneshot_read(unit, BATTERY_ADC_CHANNEL, &raw) == ESP_OK) {
             int mv = 0;
             if (adc_cali_raw_to_voltage(s_cali, raw, &mv) == ESP_OK) {
-                sum += mv;
-                valid++;
+                samples[valid++] = mv;
             }
         }
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_GAP_MS));
@@ -80,8 +89,65 @@ static esp_err_t sample_avg_mv(adc_oneshot_unit_handle_t unit, int *avg_mv)
     if (valid == 0) {
         return ESP_FAIL;
     }
-    *avg_mv = (int)(sum / valid);
+
+    std::sort(samples, samples + valid);
+    const int trim = (valid >= 4) ? (valid / 4) : 0;
+    const int kept = valid - 2 * trim;
+    int64_t sum = 0;
+    for (int i = trim; i < valid - trim; i++) {
+        sum += samples[i];
+    }
+    *avg_mv = (int)((sum + kept / 2) / kept);
     return ESP_OK;
+}
+
+typedef struct {
+    int mv;
+    uint8_t pct;
+} bat_point_t;
+
+static uint8_t lut_to_percent(int mv, const bat_point_t *pts, size_t n)
+{
+    if (mv <= pts[0].mv) {
+        return pts[0].pct;
+    }
+    if (mv >= pts[n - 1].mv) {
+        return pts[n - 1].pct;
+    }
+    for (size_t i = 1; i < n; i++) {
+        if (mv <= pts[i].mv) {
+            const int32_t dv = pts[i].mv - pts[i - 1].mv;
+            const int32_t dp = pts[i].pct - pts[i - 1].pct;
+            return (uint8_t)(pts[i - 1].pct + ((mv - pts[i - 1].mv) * dp + dv / 2) / dv);
+        }
+    }
+    return pts[n - 1].pct;
+}
+
+static uint8_t battery_mv_to_percent(int mv)
+{
+#if CONFIG_SOIL_BATTERY_CHEMISTRY_ALKALINE
+    static const bat_point_t kAlkalineLut[] = {
+        {1000, 0}, {1100, 10}, {1150, 20}, {1200, 35}, {1250, 50}, {1320, 70}, {1400, 85}, {1500, 100},
+    };
+    return lut_to_percent(mv, kAlkalineLut, sizeof(kAlkalineLut) / sizeof(kAlkalineLut[0]));
+#elif CONFIG_SOIL_BATTERY_CHEMISTRY_NIMH
+    static const bat_point_t kNimhLut[] = {
+        {1000, 0}, {1120, 10}, {1180, 20}, {1200, 35}, {1220, 55}, {1250, 75}, {1300, 90}, {1350, 100},
+    };
+    return lut_to_percent(mv, kNimhLut, sizeof(kNimhLut) / sizeof(kNimhLut[0]));
+#elif CONFIG_SOIL_BATTERY_CHEMISTRY_LITHIUM
+    static const bat_point_t kLithiumLut[] = {
+        {1200, 0}, {1350, 10}, {1420, 20}, {1480, 40}, {1520, 65}, {1560, 85}, {1620, 100},
+    };
+    return lut_to_percent(mv, kLithiumLut, sizeof(kLithiumLut) / sizeof(kLithiumLut[0]));
+#else
+    const int32_t span = CONFIG_SOIL_BATTERY_FULL_MV - CONFIG_SOIL_BATTERY_EMPTY_MV;
+    int32_t pct = (100 * (mv - CONFIG_SOIL_BATTERY_EMPTY_MV) + span / 2) / span;
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    return (uint8_t)pct;
+#endif
 }
 
 esp_err_t battery_read(battery_reading_t *reading, bool measure_sag)
@@ -94,8 +160,17 @@ esp_err_t battery_read(battery_reading_t *reading, bool measure_sag)
     static int s_last_sag_mv = -1;
 
     ESP_RETURN_ON_ERROR(sample_avg_mv(unit, &reading->rest_mv), TAG, "rest measurement failed");
+    reading->percent = battery_mv_to_percent(reading->rest_mv);
 
-    if (measure_sag) {
+    // Skip the 3-LED load test when the cell is already critical so the pulse
+    // does not trigger a brownout reset.
+    const bool run_sag = measure_sag && (reading->percent > 10);
+    if (measure_sag && !run_sag) {
+        ESP_LOGW(TAG, "Skipping sag test at critical battery (%d mV, %u%%)", reading->rest_mv,
+                 reading->percent);
+    }
+
+    if (run_sag) {
         // Sag between resting and LED-loaded readings exposes internal
         // resistance, which resting voltage alone cannot.
         status_led_load(true);
@@ -113,13 +188,7 @@ esp_err_t battery_read(battery_reading_t *reading, bool measure_sag)
     }
     reading->sag_mv = s_last_sag_mv;
 
-    int32_t pct = (100 * (reading->rest_mv - CONFIG_SOIL_BATTERY_EMPTY_MV)) /
-                  (CONFIG_SOIL_BATTERY_FULL_MV - CONFIG_SOIL_BATTERY_EMPTY_MV);
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
-    reading->percent = (uint8_t)pct;
-
-    if (measure_sag) {
+    if (run_sag) {
         ESP_LOGI(TAG, "Battery: %d mV rest, %d mV loaded (sag %d mV) -> %u%%",
                  reading->rest_mv, reading->loaded_mv, reading->sag_mv, reading->percent);
     } else {

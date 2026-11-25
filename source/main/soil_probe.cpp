@@ -20,6 +20,7 @@
 #include "status_led.h"
 #include "app_priv.h"
 
+#include <algorithm>
 #include <esp_check.h>
 #include <esp_log.h>
 #include <esp_pm.h>
@@ -38,11 +39,16 @@ static const char *TAG = "soil_probe";
 #define EXCITATION_DUTY_8BIT 174  // 68% of 256
 
 #define SOIL_ADC_CHANNEL ADC_CHANNEL_1  // GPIO1
-#define SAMPLE_COUNT     10
-#define SAMPLE_GAP_MS    50
+#define SAMPLE_COUNT     16
+#define CAL_SAMPLE_COUNT 24
+#define SAMPLE_GAP_MS    25
+#define DUMMY_READ_COUNT 2
 
 // A valid calibration needs the dry reference meaningfully above wet.
 #define CAL_MIN_SPAN_MV 200
+
+static_assert(CONFIG_SOIL_CAL_DEFAULT_DRY_MV > CONFIG_SOIL_CAL_DEFAULT_WET_MV,
+              "SOIL_CAL_DEFAULT_DRY_MV must exceed SOIL_CAL_DEFAULT_WET_MV");
 
 #define NVS_NAMESPACE "soilcal"
 #define NVS_KEY_DRY   "dry_mv"
@@ -71,19 +77,28 @@ static void excitation_off(void)
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
-// Average SAMPLE_COUNT calibrated reads, SAMPLE_GAP_MS apart. Excitation and
-// the PM lock must already be held by the caller.
-static esp_err_t read_averaged_mv(int *out_mv)
+// Interquartile trimmed mean after DUMMY_READ_COUNT discarded reads to clear
+// ADC1 S&H charge and reject RF/power-rail spikes. Excitation and the PM lock
+// must already be held by the caller.
+static esp_err_t read_trimmed_mv(int sample_count, int *out_mv, int *out_spread_mv)
 {
-    int64_t sum = 0;
+    if (sample_count > CAL_SAMPLE_COUNT) {
+        sample_count = CAL_SAMPLE_COUNT;
+    }
+
+    for (int i = 0; i < DUMMY_READ_COUNT; i++) {
+        int raw = 0;
+        (void)adc_oneshot_read(s_adc_unit, SOIL_ADC_CHANNEL, &raw);
+    }
+
+    int samples[CAL_SAMPLE_COUNT];
     int valid = 0;
-    for (int i = 0; i < SAMPLE_COUNT; i++) {
+    for (int i = 0; i < sample_count; i++) {
         int raw = 0;
         if (adc_oneshot_read(s_adc_unit, SOIL_ADC_CHANNEL, &raw) == ESP_OK) {
             int mv = 0;
             if (adc_cali_raw_to_voltage(s_cali, raw, &mv) == ESP_OK) {
-                sum += mv;
-                valid++;
+                samples[valid++] = mv;
             }
         }
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_GAP_MS));
@@ -91,17 +106,29 @@ static esp_err_t read_averaged_mv(int *out_mv)
     if (valid == 0) {
         return ESP_FAIL;
     }
-    *out_mv = (int)(sum / valid);
+
+    std::sort(samples, samples + valid);
+    const int trim = (valid >= 4) ? (valid / 4) : 0;
+    const int kept = valid - 2 * trim;
+    if (out_spread_mv != NULL) {
+        *out_spread_mv = samples[valid - 1 - trim] - samples[trim];
+    }
+
+    int64_t sum = 0;
+    for (int i = trim; i < valid - trim; i++) {
+        sum += samples[i];
+    }
+    *out_mv = (int)((sum + kept / 2) / kept);
     return ESP_OK;
 }
 
-// One full excited measurement: PM lock -> PWM on -> settle -> average -> off.
-static esp_err_t measure_mv(int *out_mv)
+// One full excited measurement: PM lock -> PWM on -> settle -> trimmed mean -> off.
+static esp_err_t measure_mv(int *out_mv, int sample_count = SAMPLE_COUNT, int *out_spread_mv = NULL)
 {
     esp_pm_lock_acquire(s_pm_lock);
     excitation_on();
     vTaskDelay(pdMS_TO_TICKS(CONFIG_SOIL_EXCITATION_SETTLE_MS));
-    esp_err_t err = read_averaged_mv(out_mv);
+    esp_err_t err = read_trimmed_mv(sample_count, out_mv, out_spread_mv);
     excitation_off();
     esp_pm_lock_release(s_pm_lock);
     return err;
@@ -113,7 +140,7 @@ static uint8_t mv_to_percent(int mv)
     if (span <= 0) {
         return 0;
     }
-    int32_t pct = (100 * (s_dry_mv - mv)) / span;
+    int32_t pct = (100 * (s_dry_mv - mv) + span / 2) / span;
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     return (uint8_t)pct;
@@ -192,7 +219,9 @@ esp_err_t soil_probe_init(void)
     ESP_RETURN_ON_ERROR(adc_cali_create_scheme_curve_fitting(&cali_cfg, &s_cali), TAG,
                         "adc calibration failed");
 
-    ESP_RETURN_ON_ERROR(esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "soil_probe", &s_pm_lock),
+    // Hold APB_FREQ_MAX during probe excitation so 200 kHz LEDC PWM stays
+    // locked even when CPU DFS scales idle frequency down to XTAL (40 MHz).
+    ESP_RETURN_ON_ERROR(esp_pm_lock_create(ESP_PM_APB_FREQ_MAX, 0, "soil_probe", &s_pm_lock),
                         TAG, "pm lock create failed");
 
     load_calibration();
@@ -218,12 +247,19 @@ esp_err_t soil_probe_calibrate(void)
     status_led_stop();
 
     int dry_new = 0;
-    esp_err_t err = measure_mv(&dry_new);
+    int dry_spread = 0;
+    esp_err_t err = measure_mv(&dry_new, CAL_SAMPLE_COUNT, &dry_spread);
     if (err != ESP_OK) {
         status_led_blink(LED_RED, 5, 200);
         return err;
     }
-    ESP_LOGI(TAG, "Calibration: dry reference %d mV", dry_new);
+    ESP_LOGI(TAG, "Calibration: dry reference %d mV (spread %d mV)", dry_new, dry_spread);
+    if (dry_spread > CONFIG_SOIL_CAL_MAX_SPREAD_MV) {
+        ESP_LOGW(TAG, "Calibration rejected: dry spread %d mV exceeds %d mV", dry_spread,
+                 CONFIG_SOIL_CAL_MAX_SPREAD_MV);
+        status_led_blink(LED_RED, 5, 200);
+        return ESP_ERR_INVALID_STATE;
+    }
     vTaskDelay(pdMS_TO_TICKS(3000));
 
     ESP_LOGI(TAG, "Calibration: place probe in WATER (green blinking, 10 s)");
@@ -232,12 +268,19 @@ esp_err_t soil_probe_calibrate(void)
     status_led_stop();
 
     int wet_new = 0;
-    err = measure_mv(&wet_new);
+    int wet_spread = 0;
+    err = measure_mv(&wet_new, CAL_SAMPLE_COUNT, &wet_spread);
     if (err != ESP_OK) {
         status_led_blink(LED_RED, 5, 200);
         return err;
     }
-    ESP_LOGI(TAG, "Calibration: wet reference %d mV", wet_new);
+    ESP_LOGI(TAG, "Calibration: wet reference %d mV (spread %d mV)", wet_new, wet_spread);
+    if (wet_spread > CONFIG_SOIL_CAL_MAX_SPREAD_MV) {
+        ESP_LOGW(TAG, "Calibration rejected: wet spread %d mV exceeds %d mV", wet_spread,
+                 CONFIG_SOIL_CAL_MAX_SPREAD_MV);
+        status_led_blink(LED_RED, 5, 200);
+        return ESP_ERR_INVALID_STATE;
+    }
 
     if (dry_new <= wet_new + CAL_MIN_SPAN_MV) {
         ESP_LOGW(TAG, "Calibration rejected: dry %d mV not above wet %d mV by %d mV", dry_new, wet_new,

@@ -88,13 +88,22 @@ static const SoilMeasurement::Attributes::SoilMoistureMeasurementLimits::TypeInf
 // Reporting - attribute updates must run on the Matter thread; readings are
 // passed through ScheduleWork's intptr_t argument.
 
-static void report_moisture(uint8_t percent)
+static void report_moisture(uint8_t percent, int raw_mv, bool force_report)
 {
-    static int s_last = -1;
-    if (s_last >= 0 && abs((int)percent - s_last) < CONFIG_SOIL_REPORT_DELTA_PERCENT) {
-        return;
+    static int s_last_pct = -1;
+    static int s_last_mv = -1;
+    if (s_last_pct >= 0) {
+        if (force_report) {
+            if ((int)percent == s_last_pct) {
+                return;
+            }
+        } else if (abs((int)percent - s_last_pct) < CONFIG_SOIL_REPORT_DELTA_PERCENT ||
+                   abs(raw_mv - s_last_mv) < 15) {
+            return;
+        }
     }
-    s_last = percent;
+    s_last_pct = percent;
+    s_last_mv = raw_mv;
     CHIP_ERROR err = chip::DeviceLayer::PlatformMgr().ScheduleWork(
         [](intptr_t arg) {
             // The registered SoilMeasurement server cluster owns this
@@ -108,7 +117,8 @@ static void report_moisture(uint8_t percent)
         },
         (intptr_t)percent);
     if (err != CHIP_NO_ERROR) {
-        s_last = -1;  // retry on the next sample instead of dropping the change
+        s_last_pct = -1;  // retry on the next sample instead of dropping the change
+        s_last_mv = -1;
     }
 }
 
@@ -180,12 +190,8 @@ static void sample_task(void *arg)
         }
 
         if (bits & (APP_SAMPLE_SILENT | APP_SAMPLE_SHOW_LED)) {
-            uint8_t moisture = 0;
-            int raw_mv = 0;
-            const bool have_moisture = (soil_probe_read(&moisture, &raw_mv) == ESP_OK);
-
-            // Sag measurement lights the LEDs: never on button presses,
-            // ~daily otherwise (internal resistance drifts over weeks).
+            // Measure battery first while the cell is truly rested after sleep,
+            // before the 200 kHz probe excitation loads the rail.
             static int64_t s_last_sag_us = -1;
             const int64_t now_us = esp_timer_get_time();
             const bool measure_sag = !(bits & APP_SAMPLE_SHOW_LED) &&
@@ -197,8 +203,13 @@ static void sample_task(void *arg)
                 s_last_sag_us = now_us;
             }
 
+            uint8_t moisture = 0;
+            int raw_mv = 0;
+            const bool have_moisture = (soil_probe_read(&moisture, &raw_mv) == ESP_OK);
+
             if (have_moisture) {
-                report_moisture(moisture);
+                const bool force_report = (bits & APP_SAMPLE_SHOW_LED) != 0;
+                report_moisture(moisture, raw_mv, force_report);
                 if (bits & APP_SAMPLE_SHOW_LED) {
                     status_led_moisture_blink(moisture);
                 }
@@ -405,7 +416,7 @@ extern "C" void app_main()
 #if CONFIG_PM_ENABLE
     esp_pm_config_t pm_config = {
         .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-        .min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = CONFIG_XTAL_FREQ,
 #if CONFIG_FREERTOS_USE_TICKLESS_IDLE
         .light_sleep_enable = true,
 #endif

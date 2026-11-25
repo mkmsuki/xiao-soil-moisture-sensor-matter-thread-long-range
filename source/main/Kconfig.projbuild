@@ -2,7 +2,7 @@ menu "Soil Sensor Configuration"
 
     config SOIL_SAMPLE_INTERVAL_SECONDS
         int "Soil sample interval (seconds)"
-        default 900
+        default 1800
         range 60 86400
         help
             How often the firmware wakes to sample the soil probe and battery.
@@ -11,7 +11,7 @@ menu "Soil Sensor Configuration"
 
     config SOIL_REPORT_DELTA_PERCENT
         int "Report delta (percent)"
-        default 1
+        default 2
         range 1 20
         help
             Minimum change in soil moisture percent before the Matter
@@ -20,9 +20,19 @@ menu "Soil Sensor Configuration"
     config SOIL_EXCITATION_SETTLE_MS
         int "Probe excitation settle time (ms)"
         default 300
+        range 10 5000
         help
             Delay between enabling the 200 kHz excitation PWM and the first
             ADC read, letting the probe's RC filter settle.
+
+    config SOIL_CAL_MAX_SPREAD_MV
+        int "Maximum allowed calibration spread (mV)"
+        default 60
+        range 10 500
+        help
+            Maximum spread (trimmed max minus trimmed min) allowed during
+            dry or wet calibration. Readings noisier than this are rejected
+            so unstable probes do not overwrite NVS calibration.
 
     config SOIL_CAL_DEFAULT_DRY_MV
         int "Default dry calibration (mV)"
@@ -37,6 +47,27 @@ menu "Soil Sensor Configuration"
         help
             Probe output in millivolts in water. Overridden by button
             calibration (triple press), which persists to NVS.
+
+    choice SOIL_BATTERY_CHEMISTRY
+        prompt "Battery chemistry profile"
+        default SOIL_BATTERY_CHEMISTRY_ALKALINE
+        help
+            Select the voltage-to-percent curve used for battery telemetry.
+            Alkaline, NiMH, and Lithium (Li-FeS2) use piecewise curves fitted
+            to their discharge profiles; Linear maps EMPTY_MV to FULL_MV.
+
+        config SOIL_BATTERY_CHEMISTRY_ALKALINE
+            bool "Alkaline AA (piecewise curve)"
+
+        config SOIL_BATTERY_CHEMISTRY_NIMH
+            bool "NiMH rechargeable AA (1.2 V)"
+
+        config SOIL_BATTERY_CHEMISTRY_LITHIUM
+            bool "Lithium primary AA (Li-FeS2)"
+
+        config SOIL_BATTERY_CHEMISTRY_LINEAR
+            bool "Linear (EMPTY_MV to FULL_MV)"
+    endchoice
 
     config SOIL_BATTERY_EMPTY_MV
         int "Battery empty voltage at ADC pin (mV)"

@@ -178,7 +178,7 @@ void status_led_load(bool on)
 void status_led_moisture_blink(uint8_t moisture_percent)
 {
     led_color_t color;
-    if (moisture_percent < MOISTURE_DRY_BELOW_PERCENT) {
+    if (moisture_percent <= MOISTURE_DRY_BELOW_PERCENT) {
         color = LED_RED;
     } else if (moisture_percent < MOISTURE_NORMAL_ABOVE_PERCENT) {
         color = LED_YELLOW;
