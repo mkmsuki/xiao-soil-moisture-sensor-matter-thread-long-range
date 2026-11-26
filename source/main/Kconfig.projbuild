@@ -48,6 +48,40 @@ menu "Soil Sensor Configuration"
             Probe output in millivolts in water. Overridden by button
             calibration (triple press), which persists to NVS.
 
+    config SOIL_FAULT_MIN_MV
+        int "Minimum valid probe voltage (mV)"
+        default 100
+        range 10 500
+        help
+            Probe readings below this threshold indicate a shorted probe or
+            failed 200 kHz excitation and report Matter Null (Unknown in HA)
+            instead of clamping to 100%.
+
+    choice SOIL_MOISTURE_CURVE
+        prompt "Soil moisture calibration curve"
+        default SOIL_MOISTURE_CURVE_LINEAR
+        help
+            Choose how calibrated probe millivolts map to 0-100%. Linear
+            matches the stock firmware and Seeed's 23% / 58% LED thresholds.
+            Segmented uses a 2-slope curve (850 permille -> 30%) for finer
+            resolution on the dry end.
+
+        config SOIL_MOISTURE_CURVE_LINEAR
+            bool "Linear (matches Seeed 23% / 58% LED thresholds)"
+
+        config SOIL_MOISTURE_CURVE_SEGMENTED
+            bool "Segmented 2-slope (850 permille -> 30%, Szyplowska 2021)"
+    endchoice
+
+    config SOIL_BUTTON_ICD_COOLDOWN_SECONDS
+        int "Button ICD wake cooldown (seconds)"
+        default 10
+        range 1 300
+        help
+            Minimum interval between button-triggered LIT ICD Active Mode
+            wakes. Prevents a wet or leaking CN4 button from keeping the Thread
+            radio awake continuously.
+
     choice SOIL_BATTERY_CHEMISTRY
         prompt "Battery chemistry profile"
         default SOIL_BATTERY_CHEMISTRY_ALKALINE

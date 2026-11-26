@@ -22,6 +22,7 @@
 
 #include <esp_log.h>
 #include <esp_matter.h>
+#include <esp_timer.h>
 #include <button_gpio.h>
 #include <iot_button.h>
 
@@ -35,6 +36,16 @@ static const char *TAG = "button";
 
 static void button_press_down_cb(void *arg, void *data)
 {
+    // Rate-limit LIT ICD Active Mode triggers so a wet/leaking CN4 button
+    // cannot hold the Thread radio awake continuously.
+    static int64_t s_last_icd_wake_us = -1;
+    const int64_t now_us = esp_timer_get_time();
+    if (s_last_icd_wake_us >= 0 &&
+        (now_us - s_last_icd_wake_us) < (int64_t)CONFIG_SOIL_BUTTON_ICD_COOLDOWN_SECONDS * 1000000LL) {
+        return;
+    }
+    s_last_icd_wake_us = now_us;
+
     // LIT ICD User Active Mode Trigger: a press makes the device reachable
     // for ActiveModeThreshold.
     CHIP_ERROR err = chip::DeviceLayer::PlatformMgr().ScheduleWork([](intptr_t) {

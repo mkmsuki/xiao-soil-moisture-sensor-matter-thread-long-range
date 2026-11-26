@@ -134,13 +134,38 @@ static esp_err_t measure_mv(int *out_mv, int sample_count = SAMPLE_COUNT, int *o
     return err;
 }
 
+static bool calibration_values_valid(int32_t dry_mv, int32_t wet_mv)
+{
+    return wet_mv >= CONFIG_SOIL_FAULT_MIN_MV && dry_mv <= 3300 && (dry_mv - wet_mv) >= CAL_MIN_SPAN_MV;
+}
+
 static uint8_t mv_to_percent(int mv)
 {
-    int32_t span = s_dry_mv - s_wet_mv;
+    const int32_t span = s_dry_mv - s_wet_mv;
     if (span <= 0) {
         return 0;
     }
-    int32_t pct = (100 * (s_dry_mv - mv) + span / 2) / span;
+    int32_t pct;
+#if CONFIG_SOIL_MOISTURE_CURVE_SEGMENTED
+    // Segmented 2-slope curve (Szyplowska et al. 2021 / jan-xyz):
+    // breakpoint at 850 permille of span from wet maps to 30%, giving finer
+    // resolution on the dry side while staying monotone across both segments.
+    const int32_t break_mv = s_wet_mv + (span * 850 + 500) / 1000;
+    constexpr int32_t kBreakPct = 30;
+    if (break_mv > s_wet_mv && break_mv < s_dry_mv) {
+        if (mv >= break_mv) {
+            const int32_t seg = s_dry_mv - break_mv;
+            pct = (kBreakPct * (s_dry_mv - mv) + seg / 2) / seg;
+        } else {
+            const int32_t seg = break_mv - s_wet_mv;
+            pct = 100 - ((100 - kBreakPct) * (mv - s_wet_mv) + seg / 2) / seg;
+        }
+    } else {
+        pct = (100 * (s_dry_mv - mv) + span / 2) / span;
+    }
+#else
+    pct = (100 * (s_dry_mv - mv) + span / 2) / span;
+#endif
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     return (uint8_t)pct;
@@ -153,10 +178,20 @@ static void load_calibration(void)
         ESP_LOGI(TAG, "No stored calibration, using defaults dry=%ld mV wet=%ld mV", s_dry_mv, s_wet_mv);
         return;
     }
-    nvs_get_i32(nvs, NVS_KEY_DRY, &s_dry_mv);
-    nvs_get_i32(nvs, NVS_KEY_WET, &s_wet_mv);
+    int32_t dry = 0;
+    int32_t wet = 0;
+    const esp_err_t err_dry = nvs_get_i32(nvs, NVS_KEY_DRY, &dry);
+    const esp_err_t err_wet = nvs_get_i32(nvs, NVS_KEY_WET, &wet);
     nvs_close(nvs);
-    ESP_LOGI(TAG, "Loaded calibration dry=%ld mV wet=%ld mV", s_dry_mv, s_wet_mv);
+
+    if (err_dry == ESP_OK && err_wet == ESP_OK && calibration_values_valid(dry, wet)) {
+        s_dry_mv = dry;
+        s_wet_mv = wet;
+        ESP_LOGI(TAG, "Loaded calibration dry=%ld mV wet=%ld mV", s_dry_mv, s_wet_mv);
+    } else {
+        ESP_LOGW(TAG, "Ignoring invalid stored calibration (dry=%ld wet=%ld), using defaults dry=%ld wet=%ld",
+                 dry, wet, s_dry_mv, s_wet_mv);
+    }
 }
 
 static esp_err_t save_calibration(int32_t dry_mv, int32_t wet_mv)
@@ -235,6 +270,10 @@ esp_err_t soil_probe_read(uint8_t *moisture_percent, int *raw_mv)
     int mv = 0;
     ESP_RETURN_ON_ERROR(measure_mv(&mv), TAG, "measurement failed");
     *raw_mv = mv;
+    if (mv < CONFIG_SOIL_FAULT_MIN_MV) {
+        ESP_LOGE(TAG, "Sensor fault: probe reading %d mV below %d mV minimum", mv, CONFIG_SOIL_FAULT_MIN_MV);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
     *moisture_percent = mv_to_percent(mv);
     ESP_LOGI(TAG, "Soil reading: %d mV -> %u%% (dry=%ld wet=%ld)", mv, *moisture_percent, s_dry_mv, s_wet_mv);
     return ESP_OK;
@@ -283,9 +322,9 @@ esp_err_t soil_probe_calibrate(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (dry_new <= wet_new + CAL_MIN_SPAN_MV) {
-        ESP_LOGW(TAG, "Calibration rejected: dry %d mV not above wet %d mV by %d mV", dry_new, wet_new,
-                 CAL_MIN_SPAN_MV);
+    if (!calibration_values_valid(dry_new, wet_new)) {
+        ESP_LOGW(TAG, "Calibration rejected: dry=%d mV wet=%d mV out of valid range (min=%d, span>=%d)",
+                 dry_new, wet_new, CONFIG_SOIL_FAULT_MIN_MV, CAL_MIN_SPAN_MV);
         status_led_blink(LED_RED, 5, 200);
         return ESP_ERR_INVALID_STATE;
     }

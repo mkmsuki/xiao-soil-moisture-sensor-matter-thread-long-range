@@ -4,6 +4,14 @@
 
 All notable changes to this firmware. Versions follow [semver](https://semver.org/); the Matter software version integer for each release is noted since OTA uses it.
 
+## v0.6.0 - Sensor fault reporting, wet-button guard & optional 2-slope curve
+
+*Software version `0x00000600`*
+
+- **Added:** Sensor Fault detection and Matter `Null` reporting. Probe readings below `SOIL_FAULT_MIN_MV` (default 100 mV) or failed ADC reads now report `Null` (`Unknown` in Home Assistant) instead of clamping to 100% or leaving stale values, and flash 3 fast red blinks on a manual press. Stored NVS calibration (`soilcal`) is also sanity-checked at boot.
+- **Added:** CN4 wet-button ICD cooldown (`SOIL_BUTTON_ICD_COOLDOWN_SECONDS`, default 10 s) in `button_press_down_cb` to prevent moisture leakage on the button from holding the Thread radio in Active Mode continuously.
+- **Added:** optional `SOIL_MOISTURE_CURVE_SEGMENTED` (2-slope, 850 permille -> 30%) in `menuconfig`, keeping `Linear` as the default so the 23% / 58% LED thresholds remain unchanged.
+
 ## v0.5.0 - Accuracy, power tuning & chemistry-aware battery
 
 *Software version `0x00000500`*

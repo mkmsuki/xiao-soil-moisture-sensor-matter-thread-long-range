@@ -15,6 +15,7 @@
 | Green, 5 blinks | Calibration saved |
 | Red, 5 blinks | Calibration rejected or failed (see [CALIBRATION.md](CALIBRATION.md)) |
 | Red, 10 blinks | Factory reset in progress |
+| Red, 3 fast blinks on press | Sensor fault (shorted probe or failed excitation; reports `Unknown` in Home Assistant) |
 | One long red, yellow, or green | Moisture verdict after a single press: dry, almost dry, or normal |
 
 ## Button reference

@@ -88,33 +88,47 @@ static const SoilMeasurement::Attributes::SoilMoistureMeasurementLimits::TypeInf
 // Reporting - attribute updates must run on the Matter thread; readings are
 // passed through ScheduleWork's intptr_t argument.
 
-static void report_moisture(uint8_t percent, bool force_report)
+// percent_or_null < 0 reports Matter Null (Sensor Fault -> Unknown in HA).
+// s_last_pct: -2 = unreported, -1 = Null reported, 0..100 = valid % reported.
+static void report_moisture(int percent_or_null, bool force_report)
 {
-    static int s_last_pct = -1;
-    if (s_last_pct >= 0) {
-        if (force_report) {
-            if ((int)percent == s_last_pct) {
-                return;
-            }
-        } else if (abs((int)percent - s_last_pct) < CONFIG_SOIL_REPORT_DELTA_PERCENT) {
+    static int s_last_pct = -2;
+    if (percent_or_null < 0) {
+        if (s_last_pct == -1) {
             return;
         }
+        s_last_pct = -1;
+    } else {
+        if (s_last_pct >= 0) {
+            if (force_report) {
+                if (percent_or_null == s_last_pct) {
+                    return;
+                }
+            } else if (abs(percent_or_null - s_last_pct) < CONFIG_SOIL_REPORT_DELTA_PERCENT) {
+                return;
+            }
+        }
+        s_last_pct = percent_or_null;
     }
-    s_last_pct = percent;
+
     CHIP_ERROR err = chip::DeviceLayer::PlatformMgr().ScheduleWork(
         [](intptr_t arg) {
             // The registered SoilMeasurement server cluster owns this
             // attribute; its setter also triggers the change report.
             chip::app::DataModel::Nullable<chip::Percent> value;
-            value.SetNonNull(static_cast<chip::Percent>(arg));
+            if (arg < 0) {
+                value.SetNull();
+            } else {
+                value.SetNonNull(static_cast<chip::Percent>(arg));
+            }
             CHIP_ERROR set_err = SoilMeasurement::SetSoilMoistureMeasuredValue(soil_endpoint_id, value);
             if (set_err != CHIP_NO_ERROR) {
                 ESP_LOGE(TAG, "Failed to set soil moisture value: %" CHIP_ERROR_FORMAT, set_err.Format());
             }
         },
-        (intptr_t)percent);
+        (intptr_t)percent_or_null);
     if (err != CHIP_NO_ERROR) {
-        s_last_pct = -1;  // retry on the next sample instead of dropping the change
+        s_last_pct = -2;  // retry on the next sample instead of dropping the change
     }
 }
 
@@ -203,11 +217,16 @@ static void sample_task(void *arg)
             int raw_mv = 0;
             const bool have_moisture = (soil_probe_read(&moisture, &raw_mv) == ESP_OK);
 
+            const bool force_report = (bits & APP_SAMPLE_SHOW_LED) != 0;
             if (have_moisture) {
-                const bool force_report = (bits & APP_SAMPLE_SHOW_LED) != 0;
-                report_moisture(moisture, force_report);
+                report_moisture((int)moisture, force_report);
                 if (bits & APP_SAMPLE_SHOW_LED) {
                     status_led_moisture_blink(moisture);
+                }
+            } else {
+                report_moisture(-1, force_report);
+                if (bits & APP_SAMPLE_SHOW_LED) {
+                    status_led_blink(LED_RED, 3, 150);
                 }
             }
             if (have_battery) {
