@@ -35,7 +35,7 @@ The LIT configuration is visible from the controller side. The Matter server's n
 
 ## Battery telemetry and health
 
-The firmware exposes four values over Matter, through the Power Source cluster on the root endpoint, and they appear as entities in Home Assistant. Cell voltage is the resting measurement in millivolts, reported as measured with no mapping applied. Battery percentage uses a selectable `SOIL_BATTERY_CHEMISTRY` profile in `menuconfig` (Alkaline AA piecewise curve by default, NiMH 1.2 V, Lithium primary Li-FeS2 fitted to field data, or Linear using `SOIL_BATTERY_EMPTY_MV` and `SOIL_BATTERY_FULL_MV`). Charge level reports Ok, Warning at 20% or a worn cell, and Critical at 10% or a dying cell; a percent-based Warning or Critical only clears once the percent is back 5 points above its threshold (25% / 15%) and the voltage has risen 50 mV above its lowest reading since, which in practice means a fresh cell, so daily temperature drift does not toggle it. Power Source attributes are re-reported only when the cell voltage moves 20 mV or more, or the charge level or replacement flag changes, never on a percent change alone. `BatReplacementNeeded` is driven by cell health rather than voltage alone.
+The firmware exposes four values over Matter, through the Power Source cluster on the root endpoint, and they appear as entities in Home Assistant. Cell voltage is the resting measurement in millivolts, reported as measured with no mapping applied. Battery percentage uses a selectable `SOIL_BATTERY_CHEMISTRY` profile in `menuconfig` (Alkaline AA piecewise curve by default, NiMH 1.2 V, Lithium primary Li-FeS2 fitted to field data, or Linear using `SOIL_BATTERY_EMPTY_MV` and `SOIL_BATTERY_FULL_MV`). Charge level reports Ok, Warning at 20% or a worn cell, and Critical at 10% or a dying cell; a percent-based Warning or Critical only clears once the percent is back 5 points above its threshold (25% / 15%) and the voltage has risen 80 mV above its lowest reading since, which in practice means a fresh cell, so daily temperature drift does not toggle it. Power Source attributes are re-reported only when the cell voltage moves 20 mV or more, or the charge level or replacement flag changes, never on a percent change alone. `BatReplacementNeeded` is driven by cell health rather than voltage alone.
 
 The default Alkaline curve reflects the steep initial drop from 1.5 V followed by the long plateau around 1.25–1.35 V, while the Lithium (Li-FeS2) profile maps the ~1.60 V knee observed in field data to 15% (~1 day of warning before brownout) and 1.50 V to 0%. Even with a fitted curve, a Li-FeS2 cell only gives roughly a day of voltage warning and oscillates 20–40 mV daily with ambient temperature. Cell voltage is reported precisely because it does not depend on any curve.
 
@@ -116,8 +116,8 @@ These are build-time options under `idf.py menuconfig`, in the Soil Sensor Confi
 
 | Option | Default | Effect |
 |---|---|---|
-| `SOIL_SAMPLE_INTERVAL_SECONDS` | 900 | Wake cadence. Soil moisture moves slowly; 1800 or 3600 s is a legitimate choice |
-| `SOIL_REPORT_DELTA_PERCENT` | 1 | Minimum change before the radio reports. Raise to 2-3% to cut reports further |
+| `SOIL_SAMPLE_INTERVAL_SECONDS` | 1800 | Wake cadence. Soil moisture moves slowly; 3600 s is a legitimate choice, and 900 s halves report latency at a power cost |
+| `SOIL_REPORT_DELTA_PERCENT` | 2 | Minimum change before the radio reports. Raise to 3% to cut reports further, or lower to 1% for finer history |
 | `SOIL_THREAD_TX_POWER_DBM` | +10 | Try lower if the sensor is near your border router; every 3 dB roughly halves TX peak power |
 | `SOIL_BATTERY_SAG_WARN_MV` / `_CRIT_MV` | 60 / 150 | Health thresholds, if your cell chemistry sags differently |
 

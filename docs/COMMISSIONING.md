@@ -14,7 +14,7 @@ Commissioning needs three things. The first is a Thread border router on your ne
 2. Enable Test Net DCL, without which the server refuses test-credentialed devices: go to Settings, then Apps, then Matter Server, then Configuration, turn on **Enable test-net DCL usage**, and restart the add-on. The same setting later serves [OTA updates](UPDATING.md#matter-ota).
 3. Go to Settings, then Devices & Services, then Add Integration, then Matter, and scan the QR code from the serial console or enter the manual pairing code.
 4. Accept the uncertified-device prompt.
-5. The device commissions over BLE, joins your Thread network, and appears with soil moisture, battery, and battery-level entities. Press the button once when it lands, since the entities can otherwise take up to 15 minutes to show up.
+5. The device commissions over BLE, joins your Thread network, and appears with soil moisture, battery, and battery-level entities. Press the button once when it lands, since the entities can otherwise take up to 30 minutes to show up.
 
 <p align="center">
   <img src="images/matter-server-nodes.png" alt="Matter server node list showing two commissioned XIAO Soil Moisture Sensor MoT nodes flagged as ICD" width="520">
@@ -22,7 +22,7 @@ Commissioning needs three things. The first is a Thread border router on your ne
 
 While the commissioning window is open the yellow LED blinks slowly. Success is three green blinks, and the first soil reading reports right after commissioning completes.
 
-A newly paired sensor can still appear in Home Assistant as a device with no entities at all. Home Assistant creates an entity only once it has read a value for the attribute behind it, and this firmware goes back to sleep after commissioning and checks in every 15 minutes. If that read misses a check-in, the device page stays empty until the next one. Press the button once and the entities populate immediately, because a press forces a sample and brings the radio up. An empty device page right after pairing is this timing, not a failed commission.
+A newly paired sensor can still appear in Home Assistant as a device with no entities at all. Home Assistant creates an entity only once it has read a value for the attribute behind it, and this firmware goes back to sleep after commissioning and checks in every 30 minutes. If that read misses a check-in, the device page stays empty until the next one. Press the button once and the entities populate immediately, because a press forces a sample and brings the radio up. An empty device page right after pairing is this timing, not a failed commission.
 
 ## Apple Home and Google Home
 
@@ -34,7 +34,7 @@ To share from Home Assistant to another ecosystem, use the Share device flow on 
 
 This is a Thread sleepy end device. It wakes to poll every 20 seconds in normal operation, and controller actions can take a few seconds. That is Thread working as designed, not the sensor misbehaving. Pressing the button once wakes it and makes it immediately reachable, which helps during commissioning and troubleshooting. Expect availability indicators in Home Assistant to update on the sampling cadence, not continuously.
 
-Home Assistant surfaces the sleep configuration as a Power & Sleep panel on the device's Matter page, with two modes. Standard Mode polls more often: controller actions reach the device within seconds at the cost of higher battery use, a fine trade on USB power. Battery Saver Mode (Long Idle) is the firmware's LIT configuration: commands may take up to 15 minutes to reach a sleeping device, and it is the right choice on AA. Readings the device reports on its own are never delayed in either mode; the choice only affects how long controller-initiated actions can wait. Both modes are running in the field here, Standard on the USB-powered unit and Battery Saver on the AA unit, and switching between them from the panel works.
+Home Assistant surfaces the sleep configuration as a Power & Sleep panel on the device's Matter page, with two modes. Standard Mode polls more often: controller actions reach the device within seconds at the cost of higher battery use, a fine trade on USB power. Battery Saver Mode (Long Idle) is the firmware's LIT configuration: commands may take up to 30 minutes to reach a sleeping device, and it is the right choice on AA. Readings the device reports on its own are never delayed in either mode; the choice only affects how long controller-initiated actions can wait. Both modes are running in the field here, Standard on the USB-powered unit and Battery Saver on the AA unit, and switching between them from the panel works.
 
 <p align="center">
   <img src="images/ha-power-sleep-icd.png" alt="Home Assistant Power and Sleep panel showing the device in Battery Saver Mode with Standard Mode as the alternative" width="680">

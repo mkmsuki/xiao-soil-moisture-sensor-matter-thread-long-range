@@ -22,7 +22,7 @@ From [app_priv.h](../source/main/app_priv.h):
 
 ## Soil probe
 
-The capacitive probe is driven by a 200 kHz excitation signal at 68% duty, the same parameters the [stock ESPHome firmware](https://github.com/Seeed-Studio/xiao-esphome-projects) uses, and readings stay comparable between the two. A measurement turns the PWM on, waits 300 ms for the probe's RC filter to settle, averages 10 ADC reads over about half a second, and turns the PWM off. Higher moisture produces lower voltage, and the dry and wet calibration points ([CALIBRATION.md](CALIBRATION.md)) map millivolts to a 0-100% scale.
+The capacitive probe is driven by a 200 kHz excitation signal at 68% duty, the same parameters the [stock ESPHome firmware](https://github.com/Seeed-Studio/xiao-esphome-projects) uses, and readings stay comparable between the two. A measurement turns the PWM on, waits 300 ms for the probe's RC filter to settle, averages 16 trimmed ADC reads over about 400 ms, and turns the PWM off. Higher moisture produces lower voltage, and the dry and wet calibration points ([CALIBRATION.md](CALIBRATION.md)) map millivolts to a 0-100% scale.
 
 The ADC runs at 12 dB attenuation with ESP-IDF curve-fitting calibration, which makes millivolt values meaningful across units.
 
