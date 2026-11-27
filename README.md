@@ -38,7 +38,7 @@ The Soil Sensor device type was added in Matter 1.5 and controllers are only now
 
 ## Status
 
-Current release: v0.4.0 (beta).
+Current release: v0.6.0 (beta).
 
 | | |
 |---|---|
@@ -69,7 +69,7 @@ Later updates can go over the air via [Matter OTA](docs/UPDATING.md), or over th
 - Battery health via sag measurement: the firmware briefly loads the cell with its own LEDs about once a day and reads voltage sag as an internal-resistance proxy that flags worn cells before they die
 - On-device calibration: triple-press the button and follow the LED prompts with dry air and a glass of water; calibration persists across reboots and reflashes
 - Identify from the controller: the status LED blinks yellow so you can tell which sensor you are looking at when several are paired
-- Local sampling with delta reporting: the probe is sampled every 15 minutes (configurable) and the radio is only used when the reading changes
+- Local sampling with delta reporting: the probe is sampled every 30 minutes (configurable) and the radio is only used when the reading changes
 - TX power capped at +10 dBm instead of the driver's +20 dBm default, cutting peak battery draw roughly 3x
 - Brownout diagnostics: brownout resets blink red at boot and increment a lifetime counter in NVS
 - Matter OTA requestor with A/B app partitions: updates arrive over Thread with no cable and keep commissioning, verified from v0.2.0 to v0.3.0 and again to v0.4.0 (see [UPDATING.md](docs/UPDATING.md))

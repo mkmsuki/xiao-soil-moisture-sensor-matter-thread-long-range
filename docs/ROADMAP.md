@@ -6,7 +6,7 @@ What is planned and what is known to be missing. This is a spare-time project; t
 
 ## Next release
 
-v0.4.0 is the current release and shipped cell voltage over Matter; the [changelog](../CHANGELOG.md) has the details. The next release is expected to be a power release, and its contents depend on what the battery investigation below turns up. The sleepy end device, LIT, delta reporting, and capped TX power are already in place, and the measured draw says the remaining loss is not in the radio schedule. The work in progress is therefore measurement and hardware path testing before firmware: the module regulator check, a cell on the module's battery pads, and a bench current profile. A few firmware settings that trim awake time, such as letting the CPU clock scale down when idle, are lined up behind those results. Each one gets tested on battery against a known floor rather than guessed at.
+v0.6.0 is the current release. It and v0.5.0 shipped the first firmware power settings (CPU frequency scaling down to 40 MHz when idle, a 30-minute sample and check-in cadence, a 2% report delta) along with sensor fault reporting and chemistry-aware battery curves; the [changelog](../CHANGELOG.md) has the details. The sleepy end device, LIT, delta reporting, and capped TX power are already in place, and the measured draw says the remaining loss is not in the radio schedule. The work in progress is therefore measurement and hardware path testing before firmware: the module regulator check, a cell on the module's battery pads, and a bench current profile. The v0.5.0 power settings still need that same test: each one gets measured on battery against a known floor rather than assumed to help.
 
 ## Open investigations
 
@@ -18,7 +18,7 @@ v0.4.0 is the current release and shipped cell voltage over Matter; the [changel
 ## Considered
 
 - A browser-based flasher, removing the esptool requirement for release installs.
-- Deep sleep between samples. The chip's deep-sleep floor is 7 µA against 180 µA in light sleep, but deep sleep is a reboot. ESP-IDF ships an OpenThread deep-sleep sleepy-device example for the C6 that saves the network and parent information to flash and re-attaches on every wake, and its README recommends light sleep unless the device sleeps for more than about 30 minutes at a stretch; this firmware samples every 15 minutes. Matter adds the session and subscription state on top, which would have to be re-established on every wake, and esp-matter has no deep-sleep path for a Thread device. Worth a proper comparison once the regulator question is settled and the peripheral power-down option above has been tried, since both are cheaper.
+- Deep sleep between samples. The chip's deep-sleep floor is 7 µA against 180 µA in light sleep, but deep sleep is a reboot. ESP-IDF ships an OpenThread deep-sleep sleepy-device example for the C6 that saves the network and parent information to flash and re-attaches on every wake, and its README recommends light sleep unless the device sleeps for more than about 30 minutes at a stretch. Since v0.5.0 this firmware samples every 30 minutes, right at that break-even point, so deep sleep is now a closer call than it was at 15 minutes. Matter adds the session and subscription state on top, which would have to be re-established on every wake, and esp-matter has no deep-sleep path for a Thread device. Worth a proper comparison once the regulator question is settled and the peripheral power-down option above has been tried, since both are cheaper.
 
 ## Watching
 

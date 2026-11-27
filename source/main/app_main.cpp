@@ -69,12 +69,15 @@ constexpr int k_battery_report_delta_mv = 20;
 // it AND the cell voltage has risen k_battery_recover_mv above the lowest
 // voltage seen since entering. Percent alone is not enough: on the steep
 // Li-FeS2 curve a 30 mV daily temperature swing spans 15% -> 48%. A primary
-// cell never genuinely recovers by itself; a real recovery is a cell swap,
-// which jumps far more than the 20-40 mV temperature drift.
+// cell never genuinely recovers by itself; a real recovery is a cell swap
+// (+150 mV or more), which jumps far more than temperature drift (20-40 mV
+// indoors, 60 mV or more on a sunlit windowsill). A swap on battery-only power
+// reboots the device and resets this state anyway, so a high threshold costs
+// little.
 constexpr int k_battery_warn_pct = 20;
 constexpr int k_battery_crit_pct = 10;
 constexpr int k_battery_level_hysteresis_pct = 5;
-constexpr int k_battery_recover_mv = 50;
+constexpr int k_battery_recover_mv = 80;
 
 static TaskHandle_t s_sample_task;
 static esp_timer_handle_t s_sample_timer;
