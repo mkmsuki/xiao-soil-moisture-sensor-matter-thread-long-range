@@ -64,6 +64,18 @@ constexpr auto k_timeout_seconds = 300;
 // a change big enough to be a real trend, so the radio is not woken by noise.
 constexpr int k_battery_report_delta_mv = 20;
 
+// Percent-based charge level thresholds. A level is entered at the threshold
+// and only left once the percent climbs k_battery_level_hysteresis_pct above
+// it AND the cell voltage has risen k_battery_recover_mv above the lowest
+// voltage seen since entering. Percent alone is not enough: on the steep
+// Li-FeS2 curve a 30 mV daily temperature swing spans 15% -> 48%. A primary
+// cell never genuinely recovers by itself; a real recovery is a cell swap,
+// which jumps far more than the 20-40 mV temperature drift.
+constexpr int k_battery_warn_pct = 20;
+constexpr int k_battery_crit_pct = 10;
+constexpr int k_battery_level_hysteresis_pct = 5;
+constexpr int k_battery_recover_mv = 50;
+
 static TaskHandle_t s_sample_task;
 static esp_timer_handle_t s_sample_timer;
 
@@ -132,25 +144,66 @@ static void report_moisture(int percent_or_null, bool force_report)
     }
 }
 
+// Percent-only charge state (0 = Ok, 1 = Warning, 2 = Critical) with
+// hysteresis: worsening applies immediately; recovery needs the percent to
+// clear the threshold by k_battery_level_hysteresis_pct and the voltage to
+// rise k_battery_recover_mv above the lowest reading since the last worsening.
+static int battery_percent_state(int pct, int mv)
+{
+    static int s_state = -1;
+    static int s_min_mv = 0;
+    int state;
+    if (s_state < 0) {
+        state = (pct <= k_battery_crit_pct) ? 2 : (pct <= k_battery_warn_pct) ? 1 : 0;
+        s_min_mv = mv;
+    } else {
+        state = s_state;
+        if (pct <= k_battery_crit_pct) {
+            state = 2;
+        } else if (pct <= k_battery_warn_pct && state < 1) {
+            state = 1;
+        }
+        if (state > s_state || mv < s_min_mv) {
+            s_min_mv = mv;
+        }
+        const bool recovered = (mv - s_min_mv) >= k_battery_recover_mv;
+        if (recovered && state == 2 && pct >= k_battery_crit_pct + k_battery_level_hysteresis_pct) {
+            state = 1;
+        }
+        if (recovered && state == 1 && pct >= k_battery_warn_pct + k_battery_level_hysteresis_pct) {
+            state = 0;
+        }
+        if (state < s_state) {
+            s_min_mv = mv;
+        }
+    }
+    s_state = state;
+    return state;
+}
+
 static void report_battery(const battery_reading_t &reading)
 {
     // Charge level factors in health: high sag = high internal resistance,
-    // even at a full resting voltage.
+    // even at a full resting voltage. The worse of the sag-based level and the
+    // hysteresis-filtered percent level wins.
+    const int pct_state = battery_percent_state(reading.percent, reading.rest_mv);
     auto level = PowerSource::BatChargeLevelEnum::kOk;
-    if (reading.percent <= 10 || reading.sag_mv >= CONFIG_SOIL_BATTERY_SAG_CRIT_MV) {
+    if (pct_state == 2 || reading.sag_mv >= CONFIG_SOIL_BATTERY_SAG_CRIT_MV) {
         level = PowerSource::BatChargeLevelEnum::kCritical;
-    } else if (reading.percent <= 20 || reading.sag_mv >= CONFIG_SOIL_BATTERY_SAG_WARN_MV) {
+    } else if (pct_state == 1 || reading.sag_mv >= CONFIG_SOIL_BATTERY_SAG_WARN_MV) {
         level = PowerSource::BatChargeLevelEnum::kWarning;
     }
-    const bool replace = (reading.sag_mv >= CONFIG_SOIL_BATTERY_SAG_WARN_MV) || (reading.percent <= 10);
+    const bool replace = (reading.sag_mv >= CONFIG_SOIL_BATTERY_SAG_WARN_MV) || (pct_state == 2);
 
-    static int s_last_pct = -1;
+    // Report only on a real voltage trend or a level/replace change. The
+    // percent is not a trigger on its own: steep chemistry LUTs turn a few mV
+    // of ADC noise into percent changes, which would wake the radio on almost
+    // every sample. Each report still carries the freshly computed percent.
     static int s_last_level = -1;
     static int s_last_replace = -1;
     static int s_last_mv = -1;
     const bool mv_changed = (s_last_mv < 0) || (abs(reading.rest_mv - s_last_mv) >= k_battery_report_delta_mv);
-    if (!mv_changed && (int)reading.percent == s_last_pct && (int)level == s_last_level &&
-        (int)replace == s_last_replace) {
+    if (!mv_changed && (int)level == s_last_level && (int)replace == s_last_replace) {
         return;
     }
 
@@ -177,7 +230,6 @@ static void report_battery(const battery_reading_t &reading)
         },
         packed);
     if (err == CHIP_NO_ERROR) {
-        s_last_pct = reading.percent;
         s_last_level = (int)level;
         s_last_replace = (int)replace;
         s_last_mv = reading.rest_mv;

@@ -26,6 +26,8 @@
 | Triple press | Start calibration |
 | Hold 10 s | Factory reset |
 
+Repeat presses inside a short cooldown are ignored (`SOIL_BUTTON_ICD_COOLDOWN_SECONDS`, default 5 s, for wake and single press; `SOIL_BUTTON_CAL_COOLDOWN_SECONDS`, default 60 s, for triple-press calibration). This keeps a wet or chattering button from draining the cell.
+
 ## Common issues
 
 The device commissions but shows no entities in Home Assistant. Press the button once before assuming anything is wrong. Home Assistant creates an entity only once it has read a value for the attribute behind it, and a freshly paired sensor checks in every 15 minutes, so an empty device page can simply be a missed check-in ([COMMISSIONING.md](COMMISSIONING.md#a-note-on-sleepy-devices)). A press forces a sample and populates the entities. If that does not do it, your Matter controller likely predates the Matter 1.5 Soil Sensor device type. Update the Matter Server add-on or your controller; older controllers commission the device fine but do not know what a soil sensor is.

@@ -74,13 +74,26 @@ menu "Soil Sensor Configuration"
     endchoice
 
     config SOIL_BUTTON_ICD_COOLDOWN_SECONDS
-        int "Button ICD wake cooldown (seconds)"
-        default 10
+        int "Button wake and sample cooldown (seconds)"
+        default 5
         range 1 300
         help
             Minimum interval between button-triggered LIT ICD Active Mode
-            wakes. Prevents a wet or leaking CN4 button from keeping the Thread
-            radio awake continuously.
+            wakes, and separately between single-press samples. Prevents a wet
+            or leaking CN4 button from keeping the Thread radio awake or
+            resampling with LED blinks continuously. Keep it at or below the
+            ICD active mode threshold (CONFIG_ICD_ACTIVE_MODE_THRESHOLD_MS,
+            5 s) so a deliberate press after the device returns to idle still
+            wakes it.
+
+    config SOIL_BUTTON_CAL_COOLDOWN_SECONDS
+        int "Button calibration cooldown (seconds)"
+        default 60
+        range 10 3600
+        help
+            Minimum interval between triple-press calibrations. A chattering
+            wet button can register as a triple press; this stops it from
+            restarting the ~20 s LED calibration sequence over and over.
 
     choice SOIL_BATTERY_CHEMISTRY
         prompt "Battery chemistry profile"
