@@ -2,7 +2,7 @@ menu "Soil Sensor Configuration"
 
     config SOIL_SAMPLE_INTERVAL_SECONDS
         int "Soil sample interval (seconds)"
-        default 900
+        default 1800
         range 60 86400
         help
             How often the firmware wakes to sample the soil probe and battery.
@@ -11,7 +11,7 @@ menu "Soil Sensor Configuration"
 
     config SOIL_REPORT_DELTA_PERCENT
         int "Report delta (percent)"
-        default 1
+        default 2
         range 1 20
         help
             Minimum change in soil moisture percent before the Matter
@@ -20,9 +20,19 @@ menu "Soil Sensor Configuration"
     config SOIL_EXCITATION_SETTLE_MS
         int "Probe excitation settle time (ms)"
         default 300
+        range 10 5000
         help
             Delay between enabling the 200 kHz excitation PWM and the first
             ADC read, letting the probe's RC filter settle.
+
+    config SOIL_CAL_MAX_SPREAD_MV
+        int "Maximum allowed calibration spread (mV)"
+        default 60
+        range 10 500
+        help
+            Maximum spread (trimmed max minus trimmed min) allowed during
+            dry or wet calibration. Readings noisier than this are rejected
+            so unstable probes do not overwrite NVS calibration.
 
     config SOIL_CAL_DEFAULT_DRY_MV
         int "Default dry calibration (mV)"
@@ -38,18 +48,95 @@ menu "Soil Sensor Configuration"
             Probe output in millivolts in water. Overridden by button
             calibration (triple press), which persists to NVS.
 
+    config SOIL_FAULT_MIN_MV
+        int "Minimum valid probe voltage (mV)"
+        default 100
+        range 10 500
+        help
+            Probe readings below this threshold indicate a shorted probe or
+            failed 200 kHz excitation and report Matter Null (Unknown in HA)
+            instead of clamping to 100%.
+
+    choice SOIL_MOISTURE_CURVE
+        prompt "Soil moisture calibration curve"
+        default SOIL_MOISTURE_CURVE_LINEAR
+        help
+            Choose how calibrated probe millivolts map to 0-100%. Linear
+            matches the stock firmware and Seeed's 23% / 58% LED thresholds.
+            Segmented uses a 2-slope curve (850 permille -> 30%) for finer
+            resolution on the dry end.
+
+        config SOIL_MOISTURE_CURVE_LINEAR
+            bool "Linear (matches Seeed 23% / 58% LED thresholds)"
+
+        config SOIL_MOISTURE_CURVE_SEGMENTED
+            bool "Segmented 2-slope (850 permille -> 30%, Szyplowska 2021)"
+    endchoice
+
+    config SOIL_BUTTON_ICD_COOLDOWN_SECONDS
+        int "Button wake and sample cooldown (seconds)"
+        default 5
+        range 1 300
+        help
+            Minimum interval between button-triggered LIT ICD Active Mode
+            wakes, and separately between single-press samples. Prevents a wet
+            or leaking CN4 button from keeping the Thread radio awake or
+            resampling with LED blinks continuously. Keep it at or below the
+            ICD active mode threshold (CONFIG_ICD_ACTIVE_MODE_THRESHOLD_MS,
+            5 s) so a deliberate press after the device returns to idle still
+            wakes it.
+
+    config SOIL_BUTTON_CAL_COOLDOWN_SECONDS
+        int "Button calibration cooldown (seconds)"
+        default 60
+        range 10 3600
+        help
+            Minimum interval between triple-press calibrations. A chattering
+            wet button can register as a triple press; this stops it from
+            restarting the ~20 s LED calibration sequence over and over.
+
+    choice SOIL_BATTERY_CHEMISTRY
+        prompt "Battery chemistry profile"
+        default SOIL_BATTERY_CHEMISTRY_ALKALINE
+        help
+            Select the voltage-to-percent curve used for battery telemetry.
+            Alkaline, NiMH, and Lithium (Li-FeS2) use piecewise curves fitted
+            to their discharge profiles; Linear maps EMPTY_MV to FULL_MV.
+
+        config SOIL_BATTERY_CHEMISTRY_ALKALINE
+            bool "Alkaline AA (piecewise curve)"
+
+        config SOIL_BATTERY_CHEMISTRY_NIMH
+            bool "NiMH rechargeable AA (1.2 V)"
+
+        config SOIL_BATTERY_CHEMISTRY_LITHIUM
+            bool "Lithium primary AA (Li-FeS2)"
+
+        config SOIL_BATTERY_CHEMISTRY_LINEAR
+            bool "Linear (EMPTY_MV to FULL_MV)"
+    endchoice
+
     config SOIL_BATTERY_EMPTY_MV
         int "Battery empty voltage at ADC pin (mV)"
         default 1000
         help
-            ADC pin voltage that maps to 0% battery. Matches the original
-            ESPHome firmware's mapping for this kit.
+            ADC pin voltage that maps to 0% battery. Used only when
+            SOIL_BATTERY_CHEMISTRY_LINEAR is selected.
 
     config SOIL_BATTERY_FULL_MV
         int "Battery full voltage at ADC pin (mV)"
         default 1500
         help
-            ADC pin voltage that maps to 100% battery.
+            ADC pin voltage that maps to 100% battery. Used only when
+            SOIL_BATTERY_CHEMISTRY_LINEAR is selected.
+
+    config SOIL_CPU_DFS_IDLE
+        bool "Allow CPU frequency scaling down to XTAL when idle"
+        default y
+        help
+            When enabled, esp_pm scales the CPU clock down to CONFIG_XTAL_FREQ
+            (40 MHz on ESP32-C6) whenever no PM lock is held. Disable to pin
+            the CPU clock at the default frequency.
 
     config SOIL_BATTERY_SAG_WARN_MV
         int "Battery sag warning threshold (mV)"

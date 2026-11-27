@@ -15,11 +15,11 @@ You need the sensor powered on, dry air, and a glass of water.
 3. After a 3-second pause the green LED blinks for 10 seconds. Put the probe in the glass of water up to the enclosure line, keeping the electronics dry. The firmware measures the wet reference.
 4. Five green blinks mean the calibration was accepted, saved to flash, and a fresh reading reports immediately. Five red blinks mean it was rejected: the dry reading must exceed the wet reading by at least 200 mV, and a rejection usually means the probe was in soil during the dry phase or missed the water. Nothing changes on a rejection; triple-press to try again.
 
-Calibration persists in NVS.
+Calibration persists in NVS (`soilcal` namespace) and survives a 10-second Matter factory reset.
 
 ## Sanity checking
 
-Single-press the button for an instant reading with an LED verdict: red below 23%, yellow from 23 to 57%, green at 58% and above, the same classification the stock firmware uses. The exact percentage reaches Home Assistant a moment later.
+Single-press the button for an instant reading with an LED verdict: red at 23% and below, yellow from 24 to 57%, green at 58% and above, the same classification the stock firmware uses. The exact percentage reaches Home Assistant a moment later.
 
 ## Fleet builds
 

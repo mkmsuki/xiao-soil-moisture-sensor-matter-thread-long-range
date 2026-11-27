@@ -1,5 +1,6 @@
 # Build output
 build/
+dist/
 sdkconfig
 sdkconfig.old
 read-partition-table.bin

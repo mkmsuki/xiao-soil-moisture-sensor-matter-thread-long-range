@@ -15,6 +15,7 @@
 | Green, 5 blinks | Calibration saved |
 | Red, 5 blinks | Calibration rejected or failed (see [CALIBRATION.md](CALIBRATION.md)) |
 | Red, 10 blinks | Factory reset in progress |
+| Red, 3 fast blinks on press | Sensor fault (shorted probe or failed excitation; reports `Unknown` in Home Assistant) |
 | One long red, yellow, or green | Moisture verdict after a single press: dry, almost dry, or normal |
 
 ## Button reference
@@ -24,6 +25,8 @@
 | Single press | Sample now with a moisture LED verdict; also wakes the sleepy device |
 | Triple press | Start calibration |
 | Hold 10 s | Factory reset |
+
+Repeat presses inside a short cooldown are ignored (`SOIL_BUTTON_ICD_COOLDOWN_SECONDS`, default 5 s, for wake and single press; `SOIL_BUTTON_CAL_COOLDOWN_SECONDS`, default 60 s, for triple-press calibration). This keeps a wet or chattering button from draining the cell.
 
 ## Common issues
 
